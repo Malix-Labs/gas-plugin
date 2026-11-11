@@ -17,15 +17,28 @@ import { postProcessBundle } from "./core/post-process.js";
 import { removeExportBlocks, stripExportKeywords } from "./core/transforms.js";
 import type { GasPluginOptions, WebpackCompiler } from "./core/types.js";
 import { extractFirstInput, findRootDir, processBundle } from "./core/utils.js";
+import { findGasSyntaxIssues, type GasSyntaxIssue, validateGasSyntax } from "./core/validate.js";
 
-export type { GasPluginOptions };
-export { postProcessBundle, removeExportBlocks, stripExportKeywords };
+export type { GasPluginOptions, GasSyntaxIssue };
+export {
+  findGasSyntaxIssues,
+  postProcessBundle,
+  removeExportBlocks,
+  stripExportKeywords,
+  validateGasSyntax,
+};
 
 const GLOBALS_MARKER = "/* __GAS_GLOBALS__ */";
 const PLUGIN_NAME = "@gas-plugin/unplugin";
 
 export const unpluginFactory = (options: GasPluginOptions = {}): UnpluginOptions => {
-  const { manifest = "appsscript.json", include = [], globals = [], autoGlobals = true } = options;
+  const {
+    manifest = "appsscript.json",
+    include = [],
+    globals = [],
+    autoGlobals = true,
+    validate = true,
+  } = options;
 
   let rootDir = process.cwd();
   let outDir = "dist";
@@ -120,6 +133,9 @@ export const unpluginFactory = (options: GasPluginOptions = {}): UnpluginOptions
   function postProcessFile(filePath: string) {
     const content = readFileSync(filePath, "utf-8");
     const processed = postProcessBundle(content);
+    if (validate) {
+      validateGasSyntax(processed);
+    }
     if (processed !== content) {
       writeFileSync(filePath, processed, "utf-8");
     }
@@ -185,7 +201,7 @@ export const unpluginFactory = (options: GasPluginOptions = {}): UnpluginOptions
       },
 
       generateBundle(_options: unknown, bundle: unknown) {
-        processBundle(bundle);
+        processBundle(bundle, { validate });
       },
 
       closeBundle() {
@@ -211,7 +227,7 @@ export const unpluginFactory = (options: GasPluginOptions = {}): UnpluginOptions
       },
 
       generateBundle(_options: unknown, bundle: unknown) {
-        processBundle(bundle);
+        processBundle(bundle, { validate });
       },
 
       closeBundle() {
@@ -237,7 +253,7 @@ export const unpluginFactory = (options: GasPluginOptions = {}): UnpluginOptions
       },
 
       generateBundle(_options: unknown, bundle: unknown) {
-        processBundle(bundle);
+        processBundle(bundle, { validate });
       },
 
       closeBundle() {
