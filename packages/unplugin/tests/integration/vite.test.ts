@@ -134,4 +134,41 @@ export function onOpen() {
     // Should have readable function names (not mangled)
     expect(output).toContain("function onOpen()");
   });
+
+  it("downlevels ES2021+ syntax via default es2020 target", async () => {
+    const dir = createFixture("es2020-downlevel", {
+      "src/main.ts": `
+export function compute(input?: number) {
+  let value = input;
+  value ??= 1_000_000;
+  return value;
+}
+`,
+      "appsscript.json": '{ "timeZone": "Asia/Tokyo", "runtimeVersion": "V8" }',
+    });
+
+    await buildWithVite(dir);
+    const output = readOutput(dir);
+
+    expect(output).toContain("function compute(");
+    expect(output).not.toContain("??=");
+    expect(output).not.toContain("1_000_000");
+  });
+
+  it("fails build when BigInt literals remain in bundle unless validate is false", async () => {
+    const dir = createFixture("bigint-validation", {
+      "src/main.ts": `
+export function getBig() {
+  return 123n;
+}
+`,
+      "appsscript.json": '{ "timeZone": "Asia/Tokyo", "runtimeVersion": "V8" }',
+    });
+
+    await expect(buildWithVite(dir)).rejects.toThrow(/BigInt literal/);
+
+    await buildWithVite(dir, { validate: false });
+    const output = readOutput(dir);
+    expect(output).toContain("123n");
+  });
 });
