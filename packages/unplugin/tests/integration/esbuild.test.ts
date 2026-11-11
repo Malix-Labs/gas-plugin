@@ -127,4 +127,24 @@ export function onOpen() {
     expect(output).toMatch(/^function onOpen\(\)/m);
     expect(outputExists(dir, "appsscript.json")).toBe(true);
   });
+
+  it("downlevels ES2021+ syntax via default es2020 target", async () => {
+    const dir = createFixture("es2020-downlevel", {
+      "src/main.ts": `
+export function compute(input?: number) {
+  let value = input;
+  value ??= 1_000_000;
+  return value;
+}
+`,
+      "appsscript.json": '{ "timeZone": "Asia/Tokyo", "runtimeVersion": "V8" }',
+    });
+
+    await buildWithEsbuild(dir);
+    const output = readOutput(dir);
+
+    expect(output).toContain("function compute(");
+    expect(output).not.toContain("??=");
+    expect(output).not.toContain("1_000_000");
+  });
 });

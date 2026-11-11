@@ -91,6 +91,7 @@ export const unpluginFactory = (options: GasPluginOptions = {}): UnpluginOptions
 
     return {
       build: {
+        target: build.target ?? "es2020",
         minify: build.minify ?? false,
         rolldownOptions: {
           ...rolldownOptions,
@@ -110,6 +111,7 @@ export const unpluginFactory = (options: GasPluginOptions = {}): UnpluginOptions
 
     return {
       build: {
+        target: build.target ?? "es2020",
         minify: build.minify ?? false,
         rollupOptions: {
           ...rollupOptions,
@@ -303,6 +305,9 @@ export const unpluginFactory = (options: GasPluginOptions = {}): UnpluginOptions
         } else if (opts.outfile) {
           outFile = resolve(opts.outfile);
           outDir = dirname(outFile);
+        }
+        if (!opts.target) {
+          opts.target = "es2020";
         }
       },
     },
