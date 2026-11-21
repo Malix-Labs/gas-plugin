@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { removeExportBlocks, stripExportKeywords, transformBigIntLiterals, stripExports } from "../../src";
+import {
+  removeExportBlocks,
+  stripExportKeywords,
+  stripExports,
+  transformBigIntLiterals,
+} from "../../src";
 
 describe("stripExportKeywords", () => {
   it("strips export from function declarations", () => {

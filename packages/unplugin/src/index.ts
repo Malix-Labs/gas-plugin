@@ -255,24 +255,24 @@ export const unpluginFactory = (
     rolldown: rollupCompatibleHooks,
 
     webpack(compiler: WebpackCompiler) {
-    handledByFramework = true;
-    if (compiler.options.context) {
-      rootDir = compiler.options.context;
-    }
-    if (compiler.options.output.path) {
-      outDir = compiler.options.output.path;
-    }
+      handledByFramework = true;
+      if (compiler.options.context) {
+        rootDir = compiler.options.context;
+      }
+      if (compiler.options.output.path) {
+        outDir = compiler.options.output.path;
+      }
 
-    compiler.hooks.afterEmit.tapAsync(
-      PLUGIN_NAME,
-      (_compilation: unknown, callback: () => void) => {
-        warnUnmatchedGlobals();
-        postProcessOutputFiles();
-        copyFiles();
-        callback();
-      },
-    );
-  },
+      compiler.hooks.afterEmit.tapAsync(
+        PLUGIN_NAME,
+        (_compilation: unknown, callback: () => void) => {
+          warnUnmatchedGlobals();
+          postProcessOutputFiles();
+          copyFiles();
+          callback();
+        },
+      );
+    },
 
     // esbuild-specific hooks
     esbuild: {
