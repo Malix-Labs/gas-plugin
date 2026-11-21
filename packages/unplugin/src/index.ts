@@ -17,13 +17,20 @@ import { postProcessBundle } from "./core/post-process.js";
 import {
   removeExportBlocks,
   stripExportKeywords,
+  stripExports,
   transformBigIntLiterals,
 } from "./core/transforms.js";
 import type { GasPluginOptions, WebpackCompiler } from "./core/types.js";
 import { extractFirstInput, findRootDir, processBundle } from "./core/utils.js";
 
 export type { GasPluginOptions, UnpluginContextMeta, UnpluginOptions };
-export { postProcessBundle, removeExportBlocks, stripExportKeywords, transformBigIntLiterals };
+export {
+  postProcessBundle,
+  removeExportBlocks,
+  stripExportKeywords,
+  stripExports,
+  transformBigIntLiterals,
+};
 
 const GLOBALS_MARKER = "/* __GAS_GLOBALS__ */";
 const PLUGIN_NAME = "@gas-plugin/unplugin";
