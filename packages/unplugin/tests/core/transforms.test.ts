@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { removeExportBlocks, stripExportKeywords } from "../../src";
+import { removeExportBlocks, stripExportKeywords, transformBigIntLiterals } from "../../src";
 
 describe("stripExportKeywords", () => {
   it("strips export from function declarations", () => {
@@ -146,5 +146,53 @@ describe("removeExportBlocks", () => {
     const input = "function foo() {}\nexport { foo }";
     const result = removeExportBlocks(input);
     expect(result).toBe("function foo() {}\n");
+  });
+});
+
+describe("transformBigIntLiterals", () => {
+  it("transforms decimal BigInt literals to BigInt() calls", () => {
+    const input = "const a = 10n;\nconst b = 0n;";
+    const result = transformBigIntLiterals(input);
+    expect(result).toBe('const a = BigInt("10");\nconst b = BigInt("0");');
+  });
+
+  it("transforms large arbitrary-precision BigInt literals", () => {
+    const input = "const big = 123456789012345678901234567890n;";
+    const result = transformBigIntLiterals(input);
+    expect(result).toBe('const big = BigInt("123456789012345678901234567890");');
+  });
+
+  it("normalizes BigInt literals with numeric separators", () => {
+    const input = "const val = 1_000_000n;";
+    const result = transformBigIntLiterals(input);
+    expect(result).toBe('const val = BigInt("1000000");');
+  });
+
+  it("normalizes hex, octal, and binary BigInt literals", () => {
+    const input = "const h = 0x10n;\nconst o = 0o12n;\nconst b = 0b1010n;";
+    const result = transformBigIntLiterals(input);
+    expect(result).toBe(
+      'const h = BigInt("16");\nconst o = BigInt("10");\nconst b = BigInt("10");',
+    );
+  });
+
+  it("transforms negative BigInt expressions", () => {
+    const input = "const neg = -42n;";
+    const result = transformBigIntLiterals(input);
+    expect(result).toBe('const neg = -BigInt("42");');
+  });
+
+  it("transforms BigInt inside arithmetic and object expressions", () => {
+    const input = 'const sum = 1n + 2n;\nconst map = { [1n]: "first" };';
+    const result = transformBigIntLiterals(input);
+    expect(result).toBe(
+      'const sum = BigInt("1") + BigInt("2");\nconst map = { [BigInt("1")]: "first" };',
+    );
+  });
+
+  it("returns code unchanged when no BigInt literals exist", () => {
+    const input = "const a = 10;\nfunction test() { return 'not bigint'; }";
+    const result = transformBigIntLiterals(input);
+    expect(result).toBe(input);
   });
 });

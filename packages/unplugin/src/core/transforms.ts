@@ -1,3 +1,6 @@
+import MagicString from "magic-string";
+import { parseSync, Visitor, type VisitorObject } from "oxc-parser";
+
 /**
  * Strip `export` keyword from inline declarations.
  *
@@ -52,4 +55,38 @@ export function removeExportBlocks(code: string): string {
   result = result.replace(/^export\s+default\s+/gm, `const ${defaultExportBinding} = `);
 
   return result;
+}
+
+type LiteralNode = Parameters<NonNullable<VisitorObject["Literal"]>>[0];
+
+/**
+ * Downlevel BigInt literals (e.g. 10n, 12345678901234567890n, 0x10n) into BigInt("...")
+ * constructor calls to work around Google Apps Script's server-side parser limitation.
+ */
+export function transformBigIntLiterals(code: string): string {
+  if (!code.includes("n")) {
+    return code;
+  }
+
+  const result = parseSync("bundle.js", code, { sourceType: "module" });
+  if (!result.program || result.program.body.length === 0) {
+    return code;
+  }
+
+  const s = new MagicString(code);
+  let changed = false;
+
+  const visitor = new Visitor({
+    // biome-ignore lint/style/useNamingConvention: AST visitor method matches AST node type
+    Literal(node: LiteralNode) {
+      if ("bigint" in node && typeof node.bigint === "string") {
+        s.overwrite(node.start, node.end, `BigInt("${node.bigint}")`);
+        changed = true;
+      }
+    },
+  });
+
+  visitor.visit(result.program);
+
+  return changed ? s.toString() : code;
 }
