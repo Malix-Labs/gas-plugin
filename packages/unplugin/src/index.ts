@@ -78,6 +78,9 @@ export const unpluginFactory = (
   }
 
   function detectViteMajor(build: BuildEnvironmentOptions): number {
+    if (meta.versions?.vite) {
+      return Number(meta.versions.vite.split(".")[0]);
+    }
     try {
       const req = createRequire(import.meta.url);
       return Number((req("vite/package.json") as { version: string }).version.split(".")[0]);
@@ -160,6 +163,32 @@ export const unpluginFactory = (
     }
   }
 
+  // Shared hooks for Rollup-compatible bundlers (Rollup and Rolldown)
+  const rollupCompatibleHooks = {
+    options(inputOptions: { input?: unknown }) {
+      handledByFramework = true;
+      const firstInput = extractFirstInput(inputOptions.input);
+      if (firstInput) {
+        rootDir = findRootDir(firstInput, manifest);
+      }
+    },
+
+    outputOptions(outputOptions: { dir?: string }) {
+      if (outputOptions.dir) {
+        outDir = resolve(outputOptions.dir);
+      }
+    },
+
+    generateBundle(_options: unknown, bundle: unknown) {
+      processBundle(bundle, { transformBigInt });
+    },
+
+    closeBundle() {
+      warnUnmatchedGlobals();
+      copyFiles();
+    },
+  };
+
   return {
     name: PLUGIN_NAME,
 
@@ -213,76 +242,30 @@ export const unpluginFactory = (
     },
 
     // Rollup-specific hooks
-    rollup: {
-      options(inputOptions: { input?: unknown }) {
-        handledByFramework = true;
-        const firstInput = extractFirstInput(inputOptions.input);
-        if (firstInput) {
-          rootDir = findRootDir(firstInput, manifest);
-        }
-      },
-
-      outputOptions(outputOptions: { dir?: string }) {
-        if (outputOptions.dir) {
-          outDir = resolve(outputOptions.dir);
-        }
-      },
-
-      generateBundle(_options: unknown, bundle: unknown) {
-        processBundle(bundle, { transformBigInt });
-      },
-
-      closeBundle() {
-        warnUnmatchedGlobals();
-        copyFiles();
-      },
-    },
+    rollup: rollupCompatibleHooks,
 
     // Rolldown-specific hooks
-    rolldown: {
-      options(inputOptions: { input?: unknown }) {
-        handledByFramework = true;
-        const firstInput = extractFirstInput(inputOptions.input);
-        if (firstInput) {
-          rootDir = findRootDir(firstInput, manifest);
-        }
-      },
-
-      outputOptions(outputOptions: { dir?: string }) {
-        if (outputOptions.dir) {
-          outDir = resolve(outputOptions.dir);
-        }
-      },
-
-      generateBundle(_options: unknown, bundle: unknown) {
-        processBundle(bundle, { transformBigInt });
-      },
-
-      closeBundle() {
-        warnUnmatchedGlobals();
-        copyFiles();
-      },
-    },
+    rolldown: rollupCompatibleHooks,
 
     webpack(compiler: WebpackCompiler) {
-      handledByFramework = true;
-      if (compiler.options.context) {
-        rootDir = compiler.options.context;
-      }
-      if (compiler.options.output.path) {
-        outDir = compiler.options.output.path;
-      }
+    handledByFramework = true;
+    if (compiler.options.context) {
+      rootDir = compiler.options.context;
+    }
+    if (compiler.options.output.path) {
+      outDir = compiler.options.output.path;
+    }
 
-      compiler.hooks.afterEmit.tapAsync(
-        PLUGIN_NAME,
-        (_compilation: unknown, callback: () => void) => {
-          warnUnmatchedGlobals();
-          postProcessOutputFiles();
-          copyFiles();
-          callback();
-        },
-      );
-    },
+    compiler.hooks.afterEmit.tapAsync(
+      PLUGIN_NAME,
+      (_compilation: unknown, callback: () => void) => {
+        warnUnmatchedGlobals();
+        postProcessOutputFiles();
+        copyFiles();
+        callback();
+      },
+    );
+  },
 
     // esbuild-specific hooks
     esbuild: {
