@@ -1,5 +1,9 @@
+import MagicString from "magic-string";
+import { parseSync, type Statement, Visitor, type VisitorObject } from "oxc-parser";
+
+const DEFAULT_EXPORT_BINDING = "__gas_default__";
 /**
- * Strip `export` keyword from inline declarations.
+ * Strip `export` keyword from inline declarations using AST parsing.
  *
  * Handles patterns like:
  *   export function foo() { ... }
@@ -13,43 +17,244 @@
  * These become bare top-level declarations that GAS can call.
  */
 export function stripExportKeywords(code: string): string {
-  let result = code;
+  if (!code.includes("export")) return code;
 
-  result = result.replace(/^export\s+(function\s)/gm, "$1");
-  result = result.replace(/^export\s+(async\s+function\s)/gm, "$1");
-  result = result.replace(/^export\s+(const\s)/gm, "$1");
-  result = result.replace(/^export\s+(let\s)/gm, "$1");
-  result = result.replace(/^export\s+(var\s)/gm, "$1");
-  result = result.replace(/^export\s+(class\s)/gm, "$1");
-  result = result.replace(/^export\s+(abstract\s+class\s)/gm, "$1");
+  const result = parseSync("bundle.ts", code);
+  if (!result.program || result.program.body.length === 0) {
+    return code;
+  }
 
-  return result;
+  const s = new MagicString(code);
+  let changed = false;
+
+  for (const node of result.program.body) {
+    if (node.type === "ExportNamedDeclaration" && node.declaration) {
+      // Preserve contract: only strip if export keyword starts at the beginning of a line
+      const prevChar = node.start > 0 ? code[node.start - 1] : "\n";
+      if (node.start !== 0 && prevChar !== "\n" && prevChar !== "\r") {
+        continue;
+      }
+
+      const decl = node.declaration;
+      s.remove(node.start, decl.start);
+      changed = true;
+    }
+  }
+
+  return changed ? s.toString() : code;
+}
+
+function transformDefaultExport(node: Statement, s: MagicString): void {
+  if (node.type !== "ExportDefaultDeclaration") return;
+  const decl = node.declaration;
+
+  const isNamedDecl =
+    (decl.type === "FunctionDeclaration" || decl.type === "ClassDeclaration") &&
+    "id" in decl &&
+    Boolean(decl.id);
+
+  if (isNamedDecl) {
+    s.remove(node.start, decl.start);
+  } else {
+    s.overwrite(node.start, decl.start, `const ${DEFAULT_EXPORT_BINDING} = `);
+  }
+}
+
+function transformExportBlockNode(node: Statement, code: string, s: MagicString): boolean {
+  if (node.type === "ExportNamedDeclaration" && !node.declaration) {
+    let end = node.end;
+    if (code[end] === "\n") end += 1;
+    s.remove(node.start, end);
+    return true;
+  }
+
+  if (node.type === "ExportDefaultDeclaration") {
+    transformDefaultExport(node, s);
+    return true;
+  }
+
+  if (node.type === "ExportAllDeclaration") {
+    let end = node.end;
+    if (code[end] === "\n") end += 1;
+    s.remove(node.start, end);
+    return true;
+  }
+
+  return false;
 }
 
 /**
- * Remove remaining export blocks from bundled output:
- *   - `export { foo, bar };`
- *   - `export default expression;`
- *
- * Vite library mode typically generates `export { ... }` blocks
- * at the end of the output after all declarations.
+ * Remove remaining export blocks and transform default exports from bundled output:
+ *   - `export { foo, bar };` -> removed
+ *   - `export default function foo() {}` -> `function foo() {}`
+ *   - `export default class Foo {}` -> `class Foo {}`
+ *   - `export default expression;` -> `const __gas_default__ = expression;`
  */
 export function removeExportBlocks(code: string): string {
-  let result = code;
-  const defaultExportBinding = "__gas_default__";
+  if (!code.includes("export")) return code;
 
-  // Remove `export { ... };`
-  result = result.replace(/^export\s*\{[^}]*\}\s*;?\s*$/gm, "");
+  const result = parseSync("bundle.ts", code);
+  if (!result.program || result.program.body.length === 0) {
+    return code;
+  }
 
-  // Preserve named declarations as top-level function/class declarations.
-  result = result.replace(
-    /^export\s+default\s+((?:async\s+)?function(?:\s*\*)?\s+[A-Za-z_$][\w$]*)/gm,
-    "$1",
-  );
-  result = result.replace(/^export\s+default\s+(class\s+[A-Za-z_$][\w$]*)/gm, "$1");
+  const s = new MagicString(code);
+  let changed = false;
 
-  // Convert remaining default exports into a valid assignment.
-  result = result.replace(/^export\s+default\s+/gm, `const ${defaultExportBinding} = `);
+  for (const node of result.program.body) {
+    if (transformExportBlockNode(node, code, s)) {
+      changed = true;
+    }
+  }
 
-  return result;
+  return changed ? s.toString() : code;
+}
+
+function transformExportNamed(
+  node: Extract<Statement, { type: "ExportNamedDeclaration" }>,
+  code: string,
+  s: MagicString,
+): boolean {
+  if (node.declaration) {
+    const prevChar = node.start > 0 ? code[node.start - 1] : "\n";
+    if (node.start !== 0 && prevChar !== "\n" && prevChar !== "\r") {
+      return false;
+    }
+    s.remove(node.start, node.declaration.start);
+    return true;
+  }
+  let end = node.end;
+  if (code[end] === "\n") end += 1;
+  s.remove(node.start, end);
+  return true;
+}
+
+function transformExportNode(node: Statement, code: string, s: MagicString): boolean {
+  if (node.type === "ExportNamedDeclaration") {
+    return transformExportNamed(node, code, s);
+  }
+  if (node.type === "ExportDefaultDeclaration") {
+    transformDefaultExport(node, s);
+    return true;
+  }
+  if (node.type === "ExportAllDeclaration") {
+    let end = node.end;
+    if (code[end] === "\n") end += 1;
+    s.remove(node.start, end);
+    return true;
+  }
+  return false;
+}
+
+function isKeepStatement(node: Statement): boolean {
+  if (node.type !== "ExpressionStatement") return false;
+  const expr = node.expression;
+  if (expr.type !== "AssignmentExpression") return false;
+  const left = expr.left;
+  if (left.type === "MemberExpression") {
+    return (
+      (left.property.type === "Identifier" && left.property.name === "__gas_keep__") ||
+      (left.property.type === "Literal" &&
+        (left.property as { value?: unknown }).value === "__gas_keep__")
+    );
+  }
+  if (left.type === "Identifier") {
+    return left.name === "__gas_keep__";
+  }
+  return false;
+}
+
+function removeStatementLine(node: Statement, code: string, s: MagicString): void {
+  let start = node.start;
+  while (start > 0 && code[start - 1] !== "\n" && code[start - 1] !== "\r") {
+    start--;
+  }
+  let end = node.end;
+  if (code[end] === "\r" && code[end + 1] === "\n") {
+    end += 2;
+  } else if (code[end] === "\n") {
+    end += 1;
+  }
+  s.remove(start, end);
+}
+
+export interface StripExportsOptions {
+  transformBigInt?: boolean;
+}
+
+type LiteralNode = Parameters<NonNullable<VisitorObject["Literal"]>>[0];
+
+/**
+ * Strip both inline export keywords, export blocks, and tree-shake protection markers,
+ * and optionally downlevel BigInt literals, in a single AST traversal pass.
+ */
+export function stripExports(code: string, options: StripExportsOptions = {}): string {
+  const shouldTransformBigInt = options.transformBigInt !== false && code.includes("n");
+  if (!(code.includes("export") || code.includes("__gas_keep__") || shouldTransformBigInt)) {
+    return code;
+  }
+
+  const result = parseSync("bundle.ts", code);
+  if (!result.program || result.program.body.length === 0) {
+    return code;
+  }
+
+  const s = new MagicString(code);
+  let changed = false;
+
+  for (const node of result.program.body) {
+    if (transformExportNode(node, code, s)) {
+      changed = true;
+    } else if (isKeepStatement(node)) {
+      removeStatementLine(node, code, s);
+      changed = true;
+    }
+  }
+
+  if (shouldTransformBigInt) {
+    const visitor = new Visitor({
+      // biome-ignore lint/style/useNamingConvention: AST visitor method matches AST node type
+      Literal(node: LiteralNode) {
+        if ("bigint" in node && typeof node.bigint === "string") {
+          s.overwrite(node.start, node.end, `BigInt("${node.bigint}")`);
+          changed = true;
+        }
+      },
+    });
+    visitor.visit(result.program);
+  }
+
+  return changed ? s.toString() : code;
+}
+
+/**
+ * Downlevel BigInt literals (e.g. 10n, 12345678901234567890n, 0x10n) into BigInt("...")
+ * constructor calls to work around Google Apps Script's server-side parser limitation.
+ */
+export function transformBigIntLiterals(code: string): string {
+  if (!code.includes("n")) {
+    return code;
+  }
+
+  const result = parseSync("bundle.ts", code);
+  if (!result.program || result.program.body.length === 0) {
+    return code;
+  }
+
+  const s = new MagicString(code);
+  let changed = false;
+
+  const visitor = new Visitor({
+    // biome-ignore lint/style/useNamingConvention: AST visitor method matches AST node type
+    Literal(node: LiteralNode) {
+      if ("bigint" in node && typeof node.bigint === "string") {
+        s.overwrite(node.start, node.end, `BigInt("${node.bigint}")`);
+        changed = true;
+      }
+    },
+  });
+
+  visitor.visit(result.program);
+
+  return changed ? s.toString() : code;
 }

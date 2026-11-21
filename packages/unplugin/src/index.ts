@@ -14,12 +14,23 @@ import type { BuildEnvironmentOptions, UserConfig as ViteUserConfig } from "vite
 import { detectNamesToProtect } from "./core/globals.js";
 import { copyFilesFlat, resolveIncludeFiles } from "./core/include.js";
 import { postProcessBundle } from "./core/post-process.js";
-import { removeExportBlocks, stripExportKeywords } from "./core/transforms.js";
+import {
+  removeExportBlocks,
+  stripExportKeywords,
+  stripExports,
+  transformBigIntLiterals,
+} from "./core/transforms.js";
 import type { GasPluginOptions, WebpackCompiler } from "./core/types.js";
 import { extractFirstInput, findRootDir, processBundle } from "./core/utils.js";
 
 export type { GasPluginOptions, UnpluginContextMeta, UnpluginOptions };
-export { postProcessBundle, removeExportBlocks, stripExportKeywords };
+export {
+  postProcessBundle,
+  removeExportBlocks,
+  stripExportKeywords,
+  stripExports,
+  transformBigIntLiterals,
+};
 
 const GLOBALS_MARKER = "/* __GAS_GLOBALS__ */";
 const PLUGIN_NAME = "@gas-plugin/unplugin";
@@ -28,7 +39,13 @@ export const unpluginFactory = (
   options: GasPluginOptions = {},
   meta: Partial<UnpluginContextMeta> = {},
 ): UnpluginOptions => {
-  const { manifest = "appsscript.json", include = [], globals = [], autoGlobals = true } = options;
+  const {
+    manifest = "appsscript.json",
+    include = [],
+    globals = [],
+    autoGlobals = true,
+    transformBigInt = true,
+  } = options;
 
   let rootDir = process.cwd();
   let outDir = "dist";
@@ -86,6 +103,7 @@ export const unpluginFactory = (
 
     return {
       build: {
+        target: build.target ?? "es2020",
         minify: build.minify ?? false,
         rolldownOptions: {
           ...rolldownOptions,
@@ -105,6 +123,7 @@ export const unpluginFactory = (
 
     return {
       build: {
+        target: build.target ?? "es2020",
         minify: build.minify ?? false,
         rollupOptions: {
           ...rollupOptions,
@@ -134,7 +153,7 @@ export const unpluginFactory = (
       if (!/\.[jt]sx?$/.test(file) || file.endsWith(".d.ts")) continue;
       const filePath = resolve(resolvedOutDir, file);
       const content = readFileSync(filePath, "utf-8");
-      const processed = postProcessBundle(content);
+      const processed = postProcessBundle(content, { transformBigInt });
       if (processed !== content) {
         writeFileSync(filePath, processed, "utf-8");
       }
@@ -161,7 +180,7 @@ export const unpluginFactory = (
     },
 
     generateBundle(_options: unknown, bundle: unknown) {
-      processBundle(bundle);
+      processBundle(bundle, { transformBigInt });
     },
 
     closeBundle() {
@@ -213,7 +232,7 @@ export const unpluginFactory = (
       },
 
       generateBundle(_options: unknown, bundle: unknown) {
-        processBundle(bundle);
+        processBundle(bundle, { transformBigInt });
       },
 
       closeBundle() {
@@ -260,6 +279,9 @@ export const unpluginFactory = (
           outDir = resolve(opts.outdir);
         } else if (opts.outfile) {
           outDir = dirname(resolve(opts.outfile));
+        }
+        if (!opts.target) {
+          opts.target = "es2020";
         }
       },
     },

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { postProcessBundle } from "./post-process.js";
+import { type PostProcessOptions, postProcessBundle } from "./post-process.js";
 
 /**
  * Extract the first input file path from various input formats.
@@ -37,10 +37,12 @@ export function findRootDir(filePath: string, manifestPath: string): string {
   return dirname(dirname(resolve(filePath)));
 }
 
+export type ProcessBundleOptions = PostProcessOptions;
+
 /**
  * Post-process generated bundle chunks in-memory.
  */
-export function processBundle(bundle: unknown): void {
+export function processBundle(bundle: unknown, options: ProcessBundleOptions = {}): void {
   if (!bundle || typeof bundle !== "object") return;
   for (const chunk of Object.values(bundle as Record<string, unknown>)) {
     if (
@@ -51,7 +53,7 @@ export function processBundle(bundle: unknown): void {
       "code" in chunk &&
       typeof chunk.code === "string"
     ) {
-      chunk.code = postProcessBundle(chunk.code);
+      chunk.code = postProcessBundle(chunk.code, options);
     }
   }
 }
