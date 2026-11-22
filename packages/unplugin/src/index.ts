@@ -11,6 +11,7 @@ import { dirname, resolve } from "node:path";
 import type { PluginBuild as EsbuildPluginBuild } from "esbuild";
 import { createUnplugin, type UnpluginContextMeta, type UnpluginOptions } from "unplugin";
 import type { BuildEnvironmentOptions, UserConfig as ViteUserConfig } from "vite";
+import { bundleDialogs, createSingleFileHtmlPlugin, resolveDialogEntries } from "./core/dialog.js";
 import { detectNamesToProtect } from "./core/globals.js";
 import { copyFilesFlat, resolveIncludeFiles } from "./core/include.js";
 import { postProcessBundle } from "./core/post-process.js";
@@ -25,8 +26,11 @@ import { extractFirstInput, findRootDir, processBundle } from "./core/utils.js";
 
 export type { GasPluginOptions, UnpluginContextMeta, UnpluginOptions };
 export {
+  bundleDialogs,
+  createSingleFileHtmlPlugin,
   postProcessBundle,
   removeExportBlocks,
+  resolveDialogEntries,
   stripExportKeywords,
   stripExports,
   transformBigIntLiterals,
@@ -45,6 +49,7 @@ export const unpluginFactory = (
     globals = [],
     autoGlobals = true,
     transformBigInt = true,
+    dialogs,
   } = options;
 
   let rootDir = process.cwd();
@@ -192,9 +197,8 @@ export const unpluginFactory = (
       processBundle(bundle, { transformBigInt });
     },
 
-    closeBundle() {
-      warnUnmatchedGlobals();
-      copyFiles();
+    async closeBundle() {
+      await handleBundleClosing();
     },
   };
 
@@ -299,13 +303,24 @@ export const unpluginFactory = (
     }
 
     c.hooks?.afterEmit?.tapAsync(PLUGIN_NAME, (_compilation: unknown, callback: () => void) => {
-      warnUnmatchedGlobals();
       if (!processedInCompilation) {
         postProcessOutputFiles();
       }
-      copyFiles();
-      callback();
+      const res = handleBundleClosing();
+      if (res && typeof res.then === "function") {
+        res.then(() => callback()).catch(() => callback());
+      } else {
+        callback();
+      }
     });
+  }
+
+  function handleBundleClosing(): Promise<void> | void {
+    warnUnmatchedGlobals();
+    copyFiles();
+    if (dialogs) {
+      return bundleDialogs(dialogs, { rootDir, outDir: resolveOutDir() });
+    }
   }
 
   return {
@@ -354,9 +369,8 @@ export const unpluginFactory = (
         processBundle(bundle, { transformBigInt });
       },
 
-      closeBundle() {
-        warnUnmatchedGlobals();
-        copyFiles();
+      async closeBundle() {
+        await handleBundleClosing();
       },
     },
 
@@ -367,6 +381,7 @@ export const unpluginFactory = (
     rolldown: rollupCompatibleHooks,
 
     webpack: setupWebpackLikeCompiler,
+
     rspack: setupWebpackLikeCompiler,
 
     // esbuild-specific hooks
@@ -398,15 +413,14 @@ export const unpluginFactory = (
     },
 
     // writeBundle: universal fallback for esbuild/Bun (skipped when framework handles it)
-    writeBundle() {
+    async writeBundle() {
       if (handledByFramework) return;
-      warnUnmatchedGlobals();
       postProcessOutputFiles();
-      copyFiles();
+      await handleBundleClosing();
     },
   };
 };
 
-export const unplugin = createUnplugin(unpluginFactory);
+export const unplugin = /* @__PURE__ */ createUnplugin(unpluginFactory);
 
 export default unplugin;

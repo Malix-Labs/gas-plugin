@@ -1,4 +1,5 @@
 import type { UnpluginOptions } from "unplugin";
+import type { GasDialogsOption } from "./dialog.js";
 
 export type WebpackCompiler = Parameters<NonNullable<UnpluginOptions["webpack"]>>[0];
 export type RspackCompiler = Parameters<NonNullable<UnpluginOptions["rspack"]>>[0];
@@ -49,4 +50,23 @@ export interface GasPluginOptions {
    * @default true
    */
   transformBigInt?: boolean;
+
+  /**
+   * Dialog / modal HTML entries to bundle into self-contained, single-file HTML outputs
+   * in the output directory (e.g. for HtmlService.createHtmlOutputFromFile).
+   * All referenced CSS stylesheets and JavaScript scripts are automatically inlined.
+   *
+   * @example
+   * ```ts
+   * dialogs: ["src/ui/dialogs/ * /index.html"]
+   * ```
+   *
+   * @example
+   * ```ts
+   * dialogs: [
+   *   { entry: "src/dialogs/pointage/index.html", name: "dialog-pointage", plugins: [solid()] }
+   * ]
+   * ```
+   */
+  dialogs?: GasDialogsOption;
 }
